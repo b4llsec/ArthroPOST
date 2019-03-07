@@ -11,13 +11,24 @@ class Spider:
         self.POST_url_list = []
         soup = self.make_soup(self.start_url)
         url_list = self.find_urls(self.start_url, soup)
-        for url in url_list:
-            try:
-                soup = self.make_soup(url)
-                self.find_POST_requests(url, soup)
-            except:
-                print(url + " Can't be reached. continuing...")
-                continue
+        all_url_list = url_list.copy()
+        for cycle in range(depth):
+            print(cycle)
+            new_url_list = []
+            for url in url_list:
+                try:
+                    soup = self.make_soup(url)
+                    sub_url_list = self.find_urls(url, soup)
+                    self.find_POST_requests(url, soup)
+                    for url in sub_url_list:
+                        if self.already_seen_url(url, all_url_list) == False:
+                            new_url_list.append(url)
+                            all_url_list.append(url)
+                except:
+                    print(url + " Can't be reached. continuing...")
+                    continue
+            url_list = list(set(new_url_list))
+
     def make_soup(self, url):
         #returns soup object of given url.
         #clears for any ssl certificate errors and adds header
@@ -30,6 +41,7 @@ class Spider:
 
     def find_urls(self, base_url, soup):
         #returns list of urls in given url
+        #returns set (only unique values)
         links = soup.find_all('a')
         url_list = [base_url]
         only_subdomains = "False"
@@ -39,12 +51,15 @@ class Spider:
                 url = self.normalize_url(url, base_url)
                 if self.already_seen_url(url, url_list) == False:
                     if only_subdomains == "True":
-                        url_list.append(url)
+                        if self.check_if_subdomain(url, base_url) == True:
+                            url_list.append(url)
                     if only_subdomains == "False":
                         match = re.search(r'https?://', url)
                         if match is not None:
                             url_list.append(url)
-        return url_list
+        return list(set(url_list))
+
+        #TODO make http/https interchangable
 
     def normalize_url(self, url, base_url):
         #takes a (found) url and parses it to a working url (if necessary).
@@ -56,11 +71,17 @@ class Spider:
                 url = base_url + url
         return url
 
+    def check_if_subdomain(self, url, start_url):
+        match = re.match(start_url, url)
+        if match is not None:
+            return True
+        return False
+
+
     def already_seen_url(self, url, url_list):
         if url in url_list:
             return True
-        else:
-            return False
+        return False
 
     def find_POST_requests(self, url, soup):
         print("searching through "+ str(url))
