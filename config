@@ -1,0 +1,4 @@
+strictssl: True
+only_spider_subdomains: True
+max_spider_depth: 5
+deep_search: True
