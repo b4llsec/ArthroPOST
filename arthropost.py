@@ -9,8 +9,8 @@ header = """    _       _   _            ___  ___  ___ _____
 
 if __name__ == "__main__":
     print(header)
-    url = "http://www.bible.ca"
-    spider = Spider(url, 5)
+    url = "https://www.facebook.com/"
+    spider = Spider(url, 1)
 
     #parser = argparse.Argumentparser(description='ArthroPOST spiders webpages and returns pages with POST request forms.')
     #parser.add_argument()
