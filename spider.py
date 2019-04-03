@@ -1,50 +1,65 @@
 from bs4 import BeautifulSoup, Comment
-import urllib.request
-import ssl
+import requests
 import re
+import sys
+from standard_functions import *
+from POST_handler import *
+
+
 
 class Spider:
 
-    def __init__(self, start_url, depth):
+    def __init__(self, start_url, only_spider_subdomains, depth):
         self.start_url = start_url
         self.depth = depth
-        self.POST_url_list = []
+        self.total_POSTS = 0
+        self.POST_url_dict = {}
         soup = self.make_soup(self.start_url)
-        url_list = self.find_urls(self.start_url, soup)
+        url_list = self.find_urls(self.start_url, soup, only_spider_subdomains)
         all_url_list = url_list.copy()
         for cycle in range(depth):
-            print(cycle)
+            dynamic_print("Searching... Cycle {0}/{1}\n".format(cycle+1, depth))
             new_url_list = []
             for url in url_list:
                 try:
                     soup = self.make_soup(url)
-                    sub_url_list = self.find_urls(url, soup)
+                    updated_url = check_string_length(url)
+                    dynamic_print("{0} POST requests found. searching through: {1}".format(self.total_POSTS, updated_url))
+                    if cycle+1 is not depth:
+                        sub_url_list = self.find_urls(url, soup, only_spider_subdomains)
+                        for url in sub_url_list:
+                            if self.already_seen_url(url, all_url_list) == False:
+                                new_url_list.append(url)
+                                all_url_list.append(url)
                     self.find_POST_requests(url, soup)
-                    for url in sub_url_list:
-                        if self.already_seen_url(url, all_url_list) == False:
-                            new_url_list.append(url)
-                            all_url_list.append(url)
-                except:
-                    print(url + " Can't be reached. continuing...")
+
+                except Exception as e:
+                #    print("\n" + str(e) + "\n")
                     continue
             url_list = list(set(new_url_list))
+            if len(url_list) == 0:
+                dynamic_print("Found {0} POST requests on {1} pages. No more links to follow! Exiting...\n".format(self.total_POSTS, len(all_url_list)))
+                post_handler = POST_handler(self.POST_url_dict)
+                sys.exit()
+        print("\n")
+        dynamic_print("Found {0} POST requests on {1} pages. Exiting...\n".format(self.total_POSTS, len(all_url_list)))
+        post_handler = POST_handler(self.POST_url_dict)
 
     def make_soup(self, url):
         #returns soup object of given url.
-        #clears for any ssl certificate errors and adds header
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        ctx = ssl.SSLContext()
-        ctx.verify_mode = ssl.CERT_NONE
-        html = urllib.request.urlopen(req, context=ctx).read()
+        headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.90 Safari/537.36'}
+        req = requests.get(url, headers=headers, allow_redirects=True )
+        #print(req.status_code)
+        req = self.handle_http_status(req)
+        html = req.text
         soup = BeautifulSoup(html, features='lxml')
         return soup
 
-    def find_urls(self, base_url, soup):
+    def find_urls(self, base_url, soup, only_subdomains):
         #returns list of urls in given url
         #returns set (only unique values)
         links = soup.find_all('a')
         url_list = [base_url]
-        only_subdomains = "False"
         for tag in links:
             url = tag.get('href', None)
             if url is not None:
@@ -59,8 +74,6 @@ class Spider:
                             url_list.append(url)
         return list(set(url_list))
 
-        #TODO make http/https interchangable
-
     def normalize_url(self, url, base_url):
         #takes a (found) url and parses it to a working url (if necessary).
         if url.startswith("/") or url.startswith("../"):
@@ -72,8 +85,7 @@ class Spider:
         return url
 
     def check_if_subdomain(self, url, start_url):
-        match = re.match(start_url, url)
-        if match is not None:
+        if start_url in url:
             return True
         return False
 
@@ -84,16 +96,35 @@ class Spider:
         return False
 
     def find_POST_requests(self, url, soup):
-        print("searching through "+ str(url))
         forms = soup.find_all(name='form')
         for form in forms:
             method = form.get('method')
             if method is not None:
                 if method.lower() == 'post':
-                    print("Found POST request in: " + url)
-                    self.POST_url_list.append(url)
+                    self.POST_url_dict.setdefault(url, []).append(form)
+                    self.total_POSTS += 1
+                #    print("this is dict now: " + str(self.POST_url_dict) + "\n \n")
+                    self.check_POST_request(form)
+
+    def check_POST_request(self, form):
+        password_match = re.match(r'pa?s?s?w?o?r?d?', str(form))
+        if password_match is not None:
+            print("PASSWORD MATCH IN: {0}\n".format(str(form)))
+            print("possible login field with password input")
+            print(str(form))
 
     def find_js(self, soup):
         scripts = soup.find_all(name='script')
         for script in scripts:
             source = script.get('src')
+
+            #TODO make this so that it checks for http code and stops if not neccesary
+    def handle_http_status(self,request):
+        if request.status_code == 200:
+            return request
+        elif 300 <= request.status_code <= 399:
+            if request.status_code == 305:
+                dynamic_print("{0} POST requests found. URL returns {1}. Proxy needed.".format(self.total_POSTS,request.status_code))
+            return request
+        else:
+            dynamic_print("{0} POST requests found. Page can't be reached! HTTP STATUS CODE: {1}".format(self.total_POSTS, request.status_code))
